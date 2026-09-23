@@ -1,0 +1,19 @@
+# Secrets / local credentials — never commit
+password.txt
+sshd.conf
+authorized_keys
+ssh_host_*
+id_*
+*.pem
+*.key
+*_ed25519
+*_rsa
+
+# Build artifacts
+*.zip
+android-sshd/sshd-server
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp

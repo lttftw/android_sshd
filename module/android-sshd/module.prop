@@ -1,0 +1,6 @@
+id=android-sshd
+name=Android SSH Server（无屏远程管理）
+version=v1.0.0
+versionCode=1
+author=android-sshd
+description=通用 SSH 服务器：root 终端 + SFTP 文件传输 + 本地端口转发，开机自启。密码与公钥双鉴权，适配任意已 Root 的 Android 设备。
