@@ -12,6 +12,7 @@ id_*
 # Build artifacts
 *.zip
 android-sshd/sshd-server
+dist/
 
 # Editor / OS
 .DS_Store
