@@ -32,11 +32,12 @@ adb shell su -c "sh /data/adb/modules/android-sshd/service.sh"
 2. 在设备上查看密码（随身 WiFi 的 adb shell）：
 
 ```sh
+# 为方便，下文用 sshd-server 指代模块内的可执行文件：
+SSHD=/data/adb/modules/android-sshd/bin/sshd-server
+
 adb shell su -c "cat /data/adb/android-sshd/password.txt"
-# 或
-adb shell su -c "sh /data/adb/android-sshd/restart.sh password"
-# 日志中也有一条 [sshd-init]/[install] 提示：
-adb shell su -c "grep -n password /data/adb/android-sshd/sshd.log"
+# 或用 CLI 查看：
+adb shell su -c "$SSHD password"
 ```
 
 3. 首次用密码登录：
@@ -45,23 +46,48 @@ adb shell su -c "grep -n password /data/adb/android-sshd/sshd.log"
 ssh root@<设备IP> -p 2222
 ```
 
-4. **登录成功后自行配置公钥**（每行一个，即时生效，无需重启）：
+4. **登录成功后配置公钥**（即时生效，无需重启）。**推荐用带校验的 `add-key`**，它会先解析公钥格式再写入，避免手抄/粘贴时被截断（`cat >>` 方式会静默接受格式错误的行）：
 
 ```sh
-# 在 PC 上把公钥追加到设备
-type %USERPROFILE%\.ssh\id_ed25519.pub | ssh root@<设备IP> -p 2222 "cat >> /data/adb/android-sshd/authorized_keys && chmod 600 /data/adb/android-sshd/authorized_keys"
+# 把 id_ed25519.pub 的【整行】（含 ssh-ed25519 前缀）作为参数传给 add-key：
+ssh <用户名>@<设备IP> -p 2222 "/data/adb/modules/android-sshd/bin/sshd-server add-key 'ssh-ed25519 AAAA...<完整base64> 你的注释'"
 ```
 
-5. 之后可用公钥登录；可将 `sshd.conf` 中 `PASSWORD=` 置空以关闭密码登录，然后 `restart.sh restart`。
+> 常见错误：`authorized_keys` 里只留了半截 base64、或丢了 `ssh-ed25519 ` 前缀 → 服务端解析不了 → 公钥登录报 `认证失败`。用 `add-key` 会当场报错提示格式无效，而非默默写入坏数据。登录后可用 `sshd-server status` 或在设备端 `cat /data/adb/android-sshd/authorized_keys` 核对。
+
+5. 之后可用公钥登录；关闭密码登录：`sshd-server passwd ""`（置空 PASSWORD），无需重启即生效。
 
 ## 网段限制（STA / 本机网段）
 
 默认 `ALLOW_NET=192.168.0.0/24`：**仅接受来源 IP 在 192.168.0.* 的连接**（例如连接到随身 WiFi 管理网段的 PC）。  
 蜂窝网/其它网段、以及非 `192.168.0.*` 的客户端会被直接断开。
 
-- 修改：编辑 `/data/adb/android-sshd/sshd.conf` 的 `ALLOW_NET`（逗号可写多个 CIDR），然后重启服务
+- 修改：`sshd-server allow 192.168.0.0/24,192.168.1.0/24`（或编辑 `sshd.conf` 的 `ALLOW_NET`），然后 `sshd-server restart`
 - 特殊需要可设为多段，例如 `ALLOW_NET=192.168.0.0/24,192.168.1.0/24`
 - 不建议清空该项后暴露公网
+
+## 管理命令（CLI）
+
+所有管理操作内置于单一二进制，**无需依赖 shell 脚本**。设备上直接执行
+`/data/adb/modules/android-sshd/bin/sshd-server <命令>`（下文简称 `sshd-server`）：
+
+```sh
+sshd-server start            # 后台拉起守护进程（setsid 脱会话）并确认就绪
+sshd-server stop             # 经控制套接字优雅停止（回退到信号）
+sshd-server restart          # 停止并重新拉起
+sshd-server status           # pid / 监听 / 来源 / 活动连接 / 运行时长
+sshd-server init             # 仅初始化配置/密钥/随机密码，不启动
+sshd-server passwd [新密码]   # 设置密码；省略则随机生成（即时生效）
+sshd-server password         # 显示当前密码
+sshd-server user <用户名>     # 改用户名（即时生效）
+sshd-server port <端口>       # 改端口（需 restart）
+sshd-server allow <网段>      # 改来源网段（需 restart）
+sshd-server add-key "ssh-ed25519 AAAA... user@host"  # 追加公钥（即时生效）
+```
+
+- `USERNAME`/`PASSWORD`/公钥在**每次登录时热加载**，改后即时生效、无需重启
+- 改 `SSH_PORT`/`ALLOW_NET` 需 `sshd-server restart`
+- 全局标志 `-home` 可指向非默认运行态目录（默认 `/data/adb/android-sshd`）
 
 ## 其它配置
 
@@ -97,18 +123,18 @@ ssh root@<设备IP> -p 2222 "id; ls /data/adb"
 ## 目录结构
 
 ```
-/data/adb/modules/android-sshd/    模块本体（bin/sshd-server、service.sh）
+/data/adb/modules/android-sshd/    模块本体（bin/sshd-server、service.sh 仅作开机触发）
 /data/adb/android-sshd/            运行态
   sshd.conf                        配置（0600）
   password.txt                     当前登录密码（0600，adb shell 可查看）
   authorized_keys                  用户自行配置的公钥
   ssh_host_ed25519                 主机密钥（自动生成，0600）
   sshd.log                         日志
-  sshd.pid                         进程 PID
-  restart.sh                       {restart|stop|status|password}
+  sshd.pid                         守护进程 PID（由服务进程自写，准确）
+  sshd.sock                        Unix 域控制套接字（0600，status/stop 走此通道）
 ```
 
-升级模块不会覆盖运行态配置与密钥。
+升级模块不会覆盖运行态配置与密钥。管理无需 `restart.sh`，全部由 `sshd-server` CLI 完成。
 
 ## 安全须知
 
@@ -117,13 +143,25 @@ ssh root@<设备IP> -p 2222 "id; ls /data/adb"
 - 默认仅允许 `192.168.0.*` 来源，请勿把 `ALLOW_NET` 清空后暴露公网
 - 不要在仓库或共享目录保存设备私钥
 
-## 源码与重编译
+## 源码与构建
 
-- `android-sshd/main.go`（Go：x/crypto/ssh + creack/pty + pkg/sftp）
-- 交叉编译（Windows → aarch64）：
+- 源码 `android-sshd/*.go`（单二进制多子命令：`main`/`config`/`keys`/`server`/`control`/`daemon`；依赖 x/crypto/ssh + creack/pty + pkg/sftp）
+- 本地交叉编译（Windows → aarch64）并打包：
   ```powershell
+  cd android-sshd
   $env:GOOS="linux"; $env:GOARCH="arm64"; $env:CGO_ENABLED="0"
   go build -trimpath -ldflags "-s -w" -o ../module/android-sshd/bin/sshd-server .
+  cd ..
+  python make_zip.py   # 读 module.prop 的 version，输出 dist/android-sshd-<version>.zip
   ```
 - 配置项均可用命令行参数覆盖：
-  `-listen` `-allow` `-authorized-keys` `-host-key` `-config`
+  `-home` `-listen` `-allow` `-authorized-keys` `-host-key` `-config`
+
+## 发布流水线（GitHub Actions）
+
+`.github/workflows/release.yml`：**推送 `v*` 标签**时自动交叉编译 linux/arm64 → 用 `make_zip.py` 打包 Magisk zip → 以该标签**创建 GitHub Release** 并附上 zip。也可在 Actions 页手动触发（`workflow_dispatch`）下载构建工件。
+
+发布步骤：
+1. 修改代码后，更新 `module/android-sshd/module.prop` 的 `version`/`versionCode`，并同步 `main.go` 的 `versionString`；
+2. 提交并推送到默认分支，再打 tag 并推送：`git tag v1.1.0 && git push origin v1.1.0`；
+3. 流水线自动创建 Release 并上传 `android-sshd-<version>.zip`。

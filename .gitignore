@@ -13,7 +13,6 @@ id_*
 *.zip
 android-sshd/sshd-server
 dist/
-scripts/
 
 # Editor / OS
 .DS_Store

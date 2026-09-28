@@ -1,0 +1,59 @@
+name: Build & Release Module
+
+# 推送 v* 标签时自动：交叉编译 sshd-server(linux/arm64) -> 打包 Magisk 模块 zip -> 用标签创建 GitHub Release 并附上 zip。
+# 也可手动触发(workflow_dispatch) 仅产出可下载的构建工件。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: android-sshd/go.mod
+
+      - name: Build sshd-server (linux/arm64)
+        working-directory: android-sshd
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+        run: go build -trimpath -ldflags "-s -w" -o ../module/android-sshd/bin/sshd-server .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Package module zip
+        run: python make_zip.py
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "version=$(grep -m1 '^version=' module/android-sshd/module.prop | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release & upload zip
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/android-sshd-*.zip
+          generate_release_notes: true
+
+      - name: Upload build artifact
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-sshd-${{ steps.ver.outputs.version }}
+          path: dist/android-sshd-*.zip

@@ -23,7 +23,7 @@ if [ ! -f "$RUNTIME/sshd.conf" ] || ! grep -q '^PASSWORD=.' "$RUNTIME/sshd.conf"
     PW=$(date +%s%N 2>/dev/null || date +%s)
   fi
   {
-    echo "# Android SSH Server 配置（修改后执行: sh /data/adb/android-sshd/restart.sh restart）"
+    echo "# Android SSH Server 配置（改端口/网段后执行: /data/adb/modules/android-sshd/bin/sshd-server restart）"
     echo "# 仅允许来源网段 ALLOW_NET 内的连接（默认 192.168.0.0/24）"
     echo "# 该 SSH 以 root 运行。密码为安装随机生成，请通过 adb shell 查看 password.txt"
     echo "USERNAME=root"
